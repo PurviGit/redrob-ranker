@@ -1,0 +1,15 @@
+candidates.jsonl
+candidates.jsonl.gz
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+precomputed/
+*.npy
+.env
+audit.py
+check_reasoning.py
+regen_reasoning.py
+build_sample.py
+inspect*.py
+tmp_docs/
