@@ -1,0 +1,81 @@
+# Redrob Hackathon — Submission Metadata
+# Matches submission_metadata_template.yaml from the hackathon bundle
+
+# ============================================================================
+# Team identity
+# ============================================================================
+team_name: "purvi-porwal"
+
+primary_contact:
+  name:  "Purvi Porwal"
+  email: "porwalhimanshi28@gmail.com"
+  phone: "+91-XXXXXXXXXX"          # fill your phone before submitting
+
+team_members:
+  - name: "Purvi Porwal"
+    email: "porwalhimanshi28@gmail.com"
+    role: "ML Engineer / Sole Participant"
+
+# ============================================================================
+# Code and reproducibility
+# ============================================================================
+github_repo:   "https://github.com/YOUR_USERNAME/redrob-ranker"   # fill before submitting
+sandbox_link:  "https://huggingface.co/spaces/YOUR_USERNAME/redrob-ranker"  # fill before submitting
+
+reproduce_command: "python rank.py --candidates ./candidates.jsonl --out ./submission.csv --tfidf"
+# --tfidf forces TF-IDF semantic (no network calls, no GPU). Runs in ~126 s on CPU.
+
+# ============================================================================
+# Compute environment
+# ============================================================================
+compute:
+  platform:                    "Windows 11, Local CPU"
+  cpu_cores:                   8
+  ram_gb:                      16
+  python_version:              "3.11"
+  os:                          "Windows 11 Home"
+  uses_gpu_for_inference:      false
+  has_network_during_ranking:  false
+  pre_computation_required:    false
+  pre_computation_time_minutes: 0
+  runtime_seconds:             126
+  peak_ram_mb:                 500
+
+# ============================================================================
+# AI tools declaration
+# ============================================================================
+ai_tools_used:
+  - "Claude"
+
+ai_usage_summary: |
+  Used Claude for architecture discussion and code review.
+  All scoring weights, JD analysis, honeypot rules, title gate logic,
+  and semantic design decisions were made by the participant based on
+  careful reading of the JD, submission spec, and redrob_signals_doc.
+  No candidate data was processed by any LLM during ranking.
+  The ranking pipeline runs fully offline (no API calls, no GPU).
+
+# ============================================================================
+# Approach summary
+# ============================================================================
+methodology_summary: |
+  Two-phase pipeline. Phase A: fast pre-filter (honeypot detection + title gate)
+  eliminates 68% of candidates in 3 seconds — reducing 100K to ~32K survivors.
+  Phase B: 8-component weighted scoring on survivors only.
+  Components: title gate (22%), skills depth (26%), semantic TF-IDF cosine vs
+  JD embedding (14%), experience quality (16%), behavioral signals — all 23
+  (12%), career narrative production-evidence regex (5%), location (3%),
+  education + assessment (2%). Weights sum to 1.0.
+  Title gate scored BEFORE skills — an HR Manager with 9 AI skills scores 0.04.
+  Consulting-firm penalty (−35% for TCS/Infosys/Wipro full career).
+  Product company bonus (+10%). 5-rule honeypot detection. Runtime ~126 s CPU.
+
+# ============================================================================
+# Declarations
+# ============================================================================
+declarations:
+  read_submission_spec:    true
+  code_is_original_work:   true
+  no_collusion:            true
+  honeypot_check_done:     true
+  reproduction_tested:     true
