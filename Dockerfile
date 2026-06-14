@@ -12,7 +12,7 @@ COPY validate_submission.py ./
 # Default: reproduce the submission
 # docker build -t redrob-ranker .
 # docker run -v $(pwd)/candidates.jsonl:/app/candidates.jsonl redrob-ranker
-CMD ["python", "rank.py", "--candidates", "./candidates.jsonl", "--out", "./submission.csv", "--verbose"]
+CMD ["python", "rank.py", "--candidates", "./candidates.jsonl", "--out", "./submission.csv", "--tfidf", "--verbose"]
 
 # ── Sandbox ───────────────────────────────────────────────────────────────────
 # docker run -p 8501:8501 redrob-ranker \
