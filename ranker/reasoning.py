@@ -44,27 +44,37 @@ _PRODUCTION_PATTERNS: list[tuple[str, str]] = [
 
 
 def _extract_career_achievement(hist: list[dict]) -> str:
-    """Pull one concrete, quantified achievement from career descriptions."""
+    """
+    Pull one concrete achievement from career descriptions.
+    Always ends at a sentence boundary so it reads as a complete thought.
+    """
     for job in hist[:3]:
         desc = job.get("description", "")
         for pat, _ in _PRODUCTION_PATTERNS:
             m = re.search(pat, desc, re.IGNORECASE)
             if m:
-                # Find sentence start (last '. ' or start of string before match)
+                # Find sentence start
                 before = desc[:m.start()]
                 sent_start = max(before.rfind(". "), before.rfind(".\n"), before.rfind(": "))
                 sent_start = sent_start + 2 if sent_start >= 0 else 0
-                # Find sentence end
-                after      = desc[m.end():]
-                end_offset = min(
-                    (after.find(". ") if after.find(". ") >= 0 else 200),
-                    (after.find(".\n") if after.find(".\n") >= 0 else 200),
-                    120,
-                )
-                snippet = desc[sent_start : m.end() + end_offset].strip().rstrip(".,;")
-                if len(snippet) > 30:
-                    # Cap at ~120 chars to keep reasoning readable
-                    return snippet[:120].strip()
+
+                # Find sentence end — always cut at a full stop so we don't trail off
+                after = desc[m.end():]
+                dot = after.find(". ")
+                dot_nl = after.find(".\n")
+                # pick the earliest sentence-end we find; if none within 150 chars, skip
+                candidates_end = [x for x in [dot, dot_nl] if 0 <= x <= 150]
+                if not candidates_end:
+                    continue
+                end_offset = min(candidates_end) + 1   # include the full stop
+
+                snippet = desc[sent_start : m.end() + end_offset].strip().rstrip(".")
+                # Trim to 130 chars only if we can do it at a word boundary
+                if len(snippet) > 130:
+                    cut = snippet[:130].rfind(" ")
+                    snippet = snippet[:cut].rstrip(".,;") + "..."
+                if len(snippet) > 25:
+                    return snippet
     return ""
 
 
@@ -195,31 +205,34 @@ def generate(candidate: dict, rank: int, score: float, components: dict) -> str:
 
     # ── Sentence 2: tone calibrated to rank tier ─────────────────────────
     if rank <= 10:
-        top_s = [x for x in strengths if any(k in x for k in
-                 ["GitHub", "response", "notice", "JD skills", "active", "product"])][:3]
-        if not top_s:
-            top_s = strengths[:3]
+        # Top 10 — lead with what specifically makes them excellent, flag any real concerns
+        highlight = [x for x in strengths if any(k in x for k in
+                     ["GitHub", "response", "notice", "JD skills", "active", "product", "open-to-work"])][:3]
+        if not highlight:
+            highlight = strengths[:3]
         if concerns:
-            s2 = f"Strong match: {'; '.join(top_s[:2])}. Note: {concerns[0]}."
-        elif top_s:
-            s2 = f"Strong across all JD dimensions: {'; '.join(top_s[:3])}."
+            s2 = f"{'; '.join(highlight[:2])}. Worth noting: {concerns[0]}."
+        elif highlight:
+            s2 = f"{'; '.join(highlight[:3])}."
         else:
-            s2 = "Ranks highest on combined JD skill alignment and behavioral signals."
+            s2 = "Ranks in top 10 on combined skill depth, semantic alignment, and availability signals."
 
     elif rank <= 30:
+        # Top 30 — balanced picture
         if strengths and concerns:
-            s2 = f"Strengths: {'; '.join(strengths[:2])}. Concern: {concerns[0]}."
+            s2 = f"{'; '.join(strengths[:2])}. Concern: {concerns[0]}."
         elif strengths:
-            s2 = f"Good fit: {'; '.join(strengths[:2])}."
+            s2 = f"{'; '.join(strengths[:2])}."
         else:
-            s2 = f"Concern: {'; '.join(concerns[:2])}."
+            s2 = f"{'; '.join(concerns[:2])}." if concerns else "Solid across most signals; marginal on some JD requirements."
 
     else:
+        # Below rank 30 — be honest about the gap
         if concerns:
-            s2 = f"Below cutoff: {'; '.join(concerns[:2])}."
+            s2 = f"Ranked here because: {'; '.join(concerns[:2])}."
         elif strengths:
-            s2 = f"Borderline — {strengths[0]}; marginal JD alignment overall."
+            s2 = f"Has {strengths[0]}, but marginal fit on the JD's core requirements."
         else:
-            s2 = "Borderline fit — marginal alignment across all JD signals."
+            s2 = "Below the clear-fit threshold on most JD dimensions."
 
     return f"{s1} {s2}"

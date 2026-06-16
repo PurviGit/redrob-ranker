@@ -19,8 +19,8 @@ team_members:
 # ============================================================================
 # Code and reproducibility
 # ============================================================================
-github_repo:   "https://github.com/YOUR_USERNAME/redrob-ranker"   # fill before submitting
-sandbox_link:  "https://huggingface.co/spaces/YOUR_USERNAME/redrob-ranker"  # fill before submitting
+github_repo:   "https://github.com/purviporwal/redrob-ranker"
+sandbox_link:  "https://huggingface.co/spaces/purviporwal/redrob-ranker"
 
 reproduce_command: "python rank.py --candidates ./candidates.jsonl --out ./submission.csv --tfidf"
 # --tfidf forces TF-IDF semantic (no network calls, no GPU). Runs in ~126 s on CPU.

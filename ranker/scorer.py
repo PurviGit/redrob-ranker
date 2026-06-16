@@ -17,7 +17,7 @@ import re
 from datetime import date
 from typing import Optional
 
-TODAY = date(2026, 6, 11)
+TODAY = date(2026, 6, 16)
 
 # ── JD taxonomy ───────────────────────────────────────────────────────────────
 STRONG_TITLES = frozenset({
