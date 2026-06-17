@@ -1,13 +1,13 @@
 # Redrob Candidate Ranker
 **India Runs Hackathon · Data & AI Challenge · Track 01**
-Purvi Porwal · B.Tech IT · Rajasthan Technical University · CGPA 9.69
+Purvi Porwal · B.Tech IT 
 
 ---
 
 ## Quick start
 
 ```bash
-git clone https://github.com/purviporwal/redrob-ranker
+git clone https://github.com/PurviGit/redrob-ranker
 cd redrob-ranker
 pip install -r requirements.txt
 cp /path/to/candidates.jsonl .
