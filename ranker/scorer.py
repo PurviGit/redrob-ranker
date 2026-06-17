@@ -619,7 +619,7 @@ def score_candidate(
         "skills_matched":  sk_detail["matched_clean"][:8],
         "skills_neg_hits": sk_detail["neg_hits"],
         "semantic":        round(sem_combined, 4),
-        "experience":      round(exp_score, 4),
+        "exp":             round(exp_score, 4),
         "exp_tier":        exp_tier,
         "behavioral":      round(beh_score, 4),
         "beh_detail":      beh_det,
