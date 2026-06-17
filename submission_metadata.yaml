@@ -12,12 +12,12 @@ primary_contact:
 team_members:
   - name: "Purvi Porwal"
     email: "purviporwal46@gmail.com"
-    role: "ML Engineer / Sole Participant"
+    role: "Sole Participant"
 
 # ============================================================================
 # Code and reproducibility
 # ============================================================================
-github_repo: "https://github.com/purviporwal/redrob-ranker"
+github_repo: "https://github.com/PurviGit/redrob-ranker"
 sandbox_link: "https://huggingface.co/spaces/purviporwal/redrob-ranker"
 
 reproduce_command: "python rank.py --candidates ./candidates.jsonl --out ./purvi-porwal.csv"
