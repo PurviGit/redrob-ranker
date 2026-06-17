@@ -21,8 +21,8 @@ github_repo: "https://github.com/purviporwal/redrob-ranker"
 sandbox_link: "https://huggingface.co/spaces/purviporwal/redrob-ranker"
 
 reproduce_command: "python rank.py --candidates ./candidates.jsonl --out ./purvi-porwal.csv"
-# Hybrid semantic: TF-IDF on all 32K + neural re-rank top 500 (all-MiniLM-L6-v2).
-# Runs in ~210 s (~3.5 min) on CPU. sentence-transformers required.
+# 3-stage semantic: TF-IDF all 32K + bi-encoder top 500 + cross-encoder top 30.
+# Runs in ~195 s (~3.25 min) on CPU. sentence-transformers required. Models pre-cached.
 
 # ============================================================================
 # Compute environment
@@ -37,7 +37,7 @@ compute:
   has_network_during_ranking: false
   pre_computation_required: false
   pre_computation_time_minutes: 0
-  runtime_seconds: 240
+  runtime_seconds: 210
   peak_ram_mb: 700
 
 # ============================================================================
@@ -58,18 +58,18 @@ ai_usage_summary: |
 # Approach summary
 # ============================================================================
 methodology_summary: |
-  Three-stage pipeline. Phase A: fast pre-filter (honeypot detection + title gate)
-  eliminates 68% of candidates in 3 seconds — reducing 100K to ~32K survivors.
-  Phase B: 8-component weighted scoring on survivors only.
-  Components: title gate (22%), skills depth (26%), hybrid semantic — TF-IDF
-  all candidates + bi-encoder re-rank top 500 via all-MiniLM-L6-v2 (14%), experience quality (16%),
-  behavioral signals — all 23 (12%), career narrative production-evidence regex (5%),
-  location (3%), education + assessment (2%). Weights sum to 1.0.
-  Phase C: Cross-encoder re-rank of top 30 (cross-encoder/ms-marco-MiniLM-L-6-v2) to
-  maximise NDCG@10. Blended 60/40 composite vs cross-encoder, rescaled to maintain monotonicity.
-  Title gate scored BEFORE skills — an HR Manager with 9 AI skills scores 0.04.
-  Consulting-firm penalty (−35% for TCS/Infosys/Wipro full career).
-  Product company bonus (+10%). 5-rule honeypot detection. Runtime ~177 s CPU.
+  Three-phase pipeline. Phase A: honeypot detection (5 rules) + title gate eliminates
+  68% of candidates in ~3 s (100K → 32K survivors). Phase B: 8-component weighted
+  scoring — title gate (22%), skills depth with 3-pillar combo bonus and recency (26%),
+  3-stage hybrid semantic (14%), experience with AI-native company bonus and consulting
+  penalty (16%), behavioral signals all 23 with reachability multiplier (12%), career
+  narrative with JD-exact production phrases and trajectory scoring (5%), location (3%),
+  education + assessment (2%). Phase C: cross-encoder re-rank of top 30 candidates
+  (cross-encoder/ms-marco-MiniLM-L-6-v2) to maximise NDCG@10. Key differentiators:
+  title gate before skills scoring; 3-pillar combo bonus (Retrieval + Ranking + LLM/Ops);
+  AI-native company bonus (+16%); reachability multiplier for low-response-rate candidates;
+  JD-exact production phrases (embedding drift, index refresh, retrieval regression);
+  career trajectory scoring. 5-rule honeypot detection. Runtime ~195 s CPU-only.
 
 # ============================================================================
 # Declarations
