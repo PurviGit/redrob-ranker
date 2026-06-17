@@ -35,7 +35,7 @@ _PRODUCTION_PATTERNS: list[tuple[str, str]] = [
     (r"(FAISS|Pinecone|Weaviate|Qdrant|Milvus|OpenSearch|pgvector)[^.]{0,40}", "vector-db"),
     (r"(NDCG|MRR|MAP|Recall@\d|Precision@\d|A/B\s+test)[^.]{0,60}",  "eval-metric"),
     (r"(learning.to.rank|LTR|XGBoost.*rank|LightGBM.*rank)[^.]{0,50}", "ltr"),
-    (r"(LoRA|QLoRA|PEFT|fine.tun)[^.]{0,50}",                         "finetuning"),
+    (r"((?:LoRA|QLoRA|PEFT|fine.tuning)[^.]{0,45})",                    "finetuning"),
     (r"(RAG|retrieval.augmented)[^.]{0,60}",                           "rag"),
     (r"(embedding.*drift|index.*refresh|retrieval.*regress)[^.]{0,60}", "embed-ops"),
 ]
