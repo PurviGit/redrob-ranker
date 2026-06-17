@@ -18,7 +18,7 @@ team_members:
 # Code and reproducibility
 # ============================================================================
 github_repo: "https://github.com/PurviGit/redrob-ranker"
-sandbox_link: "https://huggingface.co/spaces/purviporwal/redrob-ranker"
+sandbox_link: "https://huggingface.co/spaces/Purvip09/redrob-ranker"
 
 reproduce_command: "python rank.py --candidates ./candidates.jsonl --out ./purvi-porwal.csv"
 # 3-stage semantic: TF-IDF all 32K + bi-encoder top 500 + cross-encoder top 30.
