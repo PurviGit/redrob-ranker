@@ -99,6 +99,14 @@ PRODUCT_COMPANIES = frozenset({
     "vedantu","pharm","saarthi","walmart","adobe","atlassian","stripe",
 })
 
+# AI-native companies — extra relevant for this JD (AI-native talent intelligence platform)
+# Candidates here have shipped production AI/NLP/retrieval systems as their core product
+AI_NATIVE_COMPANIES = frozenset({
+    "sarvam","yellow.ai","haptik","mad street den","krutrim","rephrase.ai",
+    "verloop","saarthi","glance","inmobi","wysa","locobuzz","observe.ai",
+    "uniphore","gnani","vernacular","slang labs","murf","suki","artivatic",
+})
+
 TARGET_CITIES = frozenset({
     "pune","noida","delhi","delhi ncr","gurgaon","gurugram","hyderabad",
     "bangalore","bengaluru","mumbai","chennai","ahmedabad","kolkata",
@@ -282,9 +290,10 @@ def score_experience(c: dict) -> tuple[float, str]:
     consulting_ratio = sum(
         1 for co in companies if any(f in co for f in CONSULTING_FIRMS)
     ) / n
-    product_bonus = 0.10 if any(
-        any(p in co for p in PRODUCT_COMPANIES) for co in companies
-    ) else 0.0
+    ai_native = any(any(a in co for a in AI_NATIVE_COMPANIES) for co in companies)
+    product_bonus = 0.16 if ai_native else (
+        0.10 if any(any(p in co for p in PRODUCT_COMPANIES) for co in companies) else 0.0
+    )
 
     if   consulting_ratio >= 0.90: company_pen = 0.35
     elif consulting_ratio >= 0.50: company_pen = 0.12
