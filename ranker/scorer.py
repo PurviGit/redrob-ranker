@@ -68,6 +68,24 @@ CORE_SKILLS = frozenset({
     "online evaluation","experiment","hypothesis testing",
 })
 
+# The 3 JD pillars — covering all 3 signals a genuinely full-stack retrieval engineer
+PILLAR_RETRIEVAL = frozenset({
+    "pinecone","weaviate","qdrant","milvus","faiss","opensearch","elasticsearch",
+    "chromadb","lancedb","vector database","vector db","semantic search",
+    "hybrid search","bm25","dense retrieval","annoy","scann",
+})
+PILLAR_RANKING = frozenset({
+    "learning to rank","ltr","ndcg","mrr","map","reranking","information retrieval",
+    "ranking","cross-encoder","recall@k","two-stage retrieval","cross-encoder reranking",
+    "hybrid retrieval","offline evaluation","a/b testing","ab testing",
+})
+PILLAR_LLMOPS = frozenset({
+    "rag","retrieval augmented generation","fine-tuning","lora","qlora","peft",
+    "sentence-transformers","sentence transformers","embeddings","vector embeddings",
+    "text embeddings","bi-encoder","openai embeddings","bge","e5",
+    "instruction tuning","hugging face transformers",
+})
+
 SECONDARY_SKILLS = frozenset({
     "xgboost","lightgbm","catboost","pytorch","tensorflow","mlflow",
     "wandb","weights & biases","ray","triton","onnx","vllm","spark","kafka",
@@ -264,7 +282,26 @@ def score_skills(c: dict, ft: str) -> tuple[float, dict]:
     rel_end   = sum(smap[k].get("endorsements", 0) for k in matched if k in smap)
     end_bonus = min(rel_end / 400.0, 0.05)
 
-    final = min(core_norm + sec_score + py_bonus + end_bonus - neg_pen, 1.0)
+    # Pillar combo bonus: JD has 3 pillars — Retrieval + Ranking + LLM/Fine-tuning
+    # Linear skill sum misses that covering all 3 = full-stack retrieval engineer
+    pillars = sum([
+        any(p in smap or p in ft for p in PILLAR_RETRIEVAL),
+        any(p in smap or p in ft for p in PILLAR_RANKING),
+        any(p in smap or p in ft for p in PILLAR_LLMOPS),
+    ])
+    pillar_bonus = {0: 0.0, 1: 0.0, 2: 0.06, 3: 0.14}[pillars]
+
+    # Skill recency: JD skills in most recent job = currently practising, not stale
+    recent_desc = ""
+    hist_c = c.get("career_history", [])
+    if hist_c:
+        j0 = hist_c[0]
+        recent_desc = (j0.get("description", "") + " " + j0.get("title", "")).lower()
+    recent_hits = sum(1 for kw in CORE_SKILLS if kw in recent_desc)
+    recency_bonus = min(recent_hits / 6.0, 1.0) * 0.08
+
+    final = min(core_norm + sec_score + py_bonus + end_bonus
+                + pillar_bonus + recency_bonus - neg_pen, 1.0)
     return max(final, 0.0), {
         "matched":       matched,
         "sec_hits":      sec,
