@@ -3,15 +3,16 @@
 rank.py  —  Redrob Hackathon: Intelligent Candidate Discovery v2
 Produces a validated top-100 submission CSV from candidates.jsonl in <= 5 min on CPU.
 
-Pipeline (two-phase filtering for speed):
-  Phase A  — honeypot + title pre-filter on all 100K  (~30 s, O(N) Python)
-  Phase B  — semantic TF-IDF index on survivors only   (~30 s, ~300 MB RAM)
-  Phase C  — full 8-component scoring on survivors     (~30 s)
-  Phase D  — sort + write top-100 CSV
+Pipeline (three-phase for speed + quality):
+  Phase A  — honeypot + title pre-filter on all 100K    (~3 s, O(N) Python)
+  Phase B  — 3-stage semantic on survivors               (~90 s, ~700 MB RAM)
+             Stage 1: TF-IDF all 32K, Stage 2: bi-encoder top 500, Stage 3: cross-encoder top 30
+  Phase C  — full 8-component scoring on survivors       (~43 s)
+  Phase D  — sort + reachability caps + write top-100 CSV
 
 Usage:
   python rank.py
-  python rank.py --candidates candidates.jsonl --out submission.csv
+  python rank.py --candidates candidates.jsonl --out purvi-porwal.csv
   python rank.py --candidates candidates.jsonl.gz --verbose
   python rank.py --tfidf          # force TF-IDF (skips neural even if installed)
   python rank.py --no-semantic    # skip semantic entirely (fastest, lower quality)

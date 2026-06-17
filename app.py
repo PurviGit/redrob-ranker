@@ -191,7 +191,7 @@ section[data-testid="stSidebar"] hr { border-color: #1e1e3a; }
 
 # ── constants ─────────────────────────────────────────────────────────────────
 SAMPLE_FILE     = Path("data/sample_candidates.json")
-SUBMISSION_FILE = Path("submission.csv")
+SUBMISSION_FILE = Path("purvi-porwal.csv")
 
 COMP_COLORS = {
     "title":      "#6366f1", "skills":     "#8b5cf6",
@@ -295,9 +295,9 @@ with st.sidebar:
     st.markdown("""
 <div style='font-size:14px;color:#64748b;line-height:2'>
 <b style='color:#a78bfa'>Pipeline</b><br>
-100K → pre-filter → 32K → 8-component score<br><br>
+100K → pre-filter → 32K → 3-stage semantic → 8-component score<br><br>
 <b style='color:#a78bfa'>Constraints</b><br>
-CPU only · ~210 s · ≤600 MB RAM<br><br>
+CPU only · ~195 s · ≤700 MB RAM<br><br>
 <b style='color:#a78bfa'>Tests</b><br>
 55 / 55 passing
 </div>
@@ -318,7 +318,7 @@ if page == "🏠  Home":
   <span class="badge">Track 01</span>
   <span class="badge">Senior AI Engineer · JD</span>
   <h1>Intelligent Candidate Ranker</h1>
-  <p>A two-phase pipeline that reads the JD the way a recruiter does — not just what it says, but what it means.</p>
+  <p>A three-phase pipeline that reads the JD the way a recruiter does — not just what it says, but what it means.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -326,7 +326,7 @@ if page == "🏠  Home":
     c1, c2, c3, c4 = st.columns(4)
     for col, val, label, color in [
         (c1, "100 K",  "Candidates Scored",    "#6366f1"),
-        (c2, "~210 s", "CPU Runtime",           "#7c3aed"),
+        (c2, "~195 s", "CPU Runtime",           "#7c3aed"),
         (c3, "31,928", "Post-Filter Survivors", "#0d9488"),
         (c4, "55 / 55","Tests Passing",         "#059669"),
     ]:
@@ -391,19 +391,23 @@ if page == "🏠  Home":
     why_items = [
         ("🔒", "Title gate before skills",
          "An HR Manager with 9 AI keywords scores 0.04 — period. Skills mean nothing if the person isn't in the right field. Title is checked first, before any scoring begins."),
-        ("⏱", "Duration trust on skills",
-         "Expert in 10 skills with 0 months used? The multiplier 0.35 + 0.65 × min(months/24,1) kills inflated profiles naturally — no special honeypot logic needed."),
-        ("🏢", "Consulting firm penalty",
-         "JD says TCS, Wipro, Accenture are bad fit. Full consulting career → experience score × 0.65. Mixed career gets no penalty — it's fair and JD-grounded."),
-        ("🔍", "Semantic over keywords",
-         "Candidate writes 'migrated from BM25 to hybrid embedding retrieval' — no FAISS listed. TF-IDF cosine vs the JD document catches what keyword matching misses entirely."),
-        ("📡", "All 23 behavioral signals",
-         "Inactive 6 months + 5% response rate = not reachable, even if profile is perfect. Recency 23%, response rate 20%, notice 13%, GitHub 8%, interview 10%."),
+        ("🧩", "3-pillar combo bonus",
+         "JD has 3 pillars: Retrieval (vector DBs, BM25), Ranking (LTR, NDCG, reranking), LLM/Ops (RAG, LoRA, embeddings). Cover all 3 → +0.14 bonus. Cover 2 → +0.06. A full-stack retrieval engineer is exponentially more valuable than three narrow specialists."),
+        ("🏢", "AI-native company bonus",
+         "Yellow.ai, Sarvam, Haptik, Mad Street Den, Krutrim — these companies build AI as their core product. +16% experience bonus vs +10% for generic product companies and −35% for full consulting careers."),
+        ("📡", "Reachability multiplier",
+         "A candidate a recruiter cannot reach is worthless regardless of skill score. Response rate < 10% → composite × 0.78. Response rate < 20% → composite × 0.88. Notice > 90d → composite × 0.94."),
+        ("📈", "Career trajectory scoring",
+         "Not just current title — is the candidate moving toward ML or away? Recent title strongly ML + consistent past = 1.0. Moving away from ML = 0.40. Catches candidates who peaked in ML 4 years ago and drifted to management."),
+        ("🔍", "3-stage cross-encoder rerank",
+         "TF-IDF (32K) → bi-encoder top 500 (all-MiniLM-L6-v2) → cross-encoder top 30 (ms-marco). Cross-encoders jointly encode JD + candidate — dramatically better relevance signal. Directly maximises NDCG@10."),
     ]
     row_a = st.columns(2)
-    row_b = st.columns(3)
+    row_b = st.columns(2)
+    row_c = st.columns(2)
+    all_why_cols = list(row_a) + list(row_b) + list(row_c)
     for i, (icon, title, desc) in enumerate(why_items):
-        col = row_a[i] if i < 2 else row_b[i - 2]
+        col = all_why_cols[i]
         col.markdown(f"""
 <div style='background:#13131f;border:1px solid #1e1e3a;border-radius:14px;
             padding:20px;height:100%'>
@@ -437,8 +441,8 @@ if page == "🏠  Home":
 <div style='background:#052e16;border-radius:14px;padding:20px;height:100%'>
   <div style='font-size:15px;font-weight:700;color:#34d399;margin-bottom:10px'>✅ This system</div>
   <div style='font-size:14px;color:#86efac;line-height:1.75'>
-    Title gate → duration trust → consulting penalty → semantic → 23 behavioral signals.<br><br>
-    Rank 1 is a Senior ML Engineer at Zomato. Not an HR Manager.
+    Title gate → 3-pillar combo → AI-native bonus → 3-stage cross-encoder → reachability multiplier.<br><br>
+    Rank 1 is a Senior AI/ML Engineer with retrieval + ranking + LLM depth. Not an HR Manager.
   </div>
 </div>""", unsafe_allow_html=True)
 
@@ -456,8 +460,8 @@ if page == "🏠  Home":
     r1b.markdown("""
 <div style='background:#052e16;border-radius:14px;padding:22px'>
   <div style='font-size:13px;font-weight:700;color:#34d399;letter-spacing:0.05em;margin-bottom:10px'>✅ THIS SYSTEM RANK 1</div>
-  <div style='font-size:17px;font-weight:700;color:#86efac;margin-bottom:10px'>Senior ML Engineer · Zomato · 7yr · FAISS, RAG, NDCG · GitHub 87</div>
-  <div style='font-size:14px;color:#86efac;opacity:0.75;line-height:1.65'>Title gate passes. Product company. JD skills evidenced with depth. Active, high response rate.</div>
+  <div style='font-size:17px;font-weight:700;color:#86efac;margin-bottom:10px'>Senior AI/ML Engineer · AI-native company · 7yr · FAISS, RAG, NDCG, cross-encoder · GitHub 90+</div>
+  <div style='font-size:14px;color:#86efac;opacity:0.75;line-height:1.65'>Title gate passes. AI-native company (+16%). All 3 JD pillars covered (+0.14 combo). Active, high response rate. Production phrases in career.</div>
 </div>""", unsafe_allow_html=True)
 
 
@@ -929,9 +933,9 @@ elif page == "🧪  Sandbox Demo":
         # ── downloads ─────────────────────────────────────────────────────────
         sub_df = df[["candidate_id", "rank", "score", "reasoning"]].copy()
         dl1, dl2, _ = st.columns([1, 1, 2])
-        dl1.download_button("⬇  Download submission.csv",
+        dl1.download_button("⬇  Download purvi-porwal.csv",
                             sub_df.to_csv(index=False).encode(),
-                            "submission.csv", "text/csv", use_container_width=True)
+                            "purvi-porwal.csv", "text/csv", use_container_width=True)
         dl2.download_button("⬇  Full results with components",
                             df.to_csv(index=False).encode(),
                             "ranked_full.csv", "text/csv", use_container_width=True)
@@ -1001,7 +1005,7 @@ elif page == "📊  Top 100":
     st.markdown("""
 <div class="hero" style='padding:24px 32px'>
   <h1 style='font-size:1.8rem'>Top 100 Results</h1>
-  <p>Actual submission.csv — browse, filter, and inspect every ranked candidate.</p>
+  <p>Actual purvi-porwal.csv — browse, filter, and inspect every ranked candidate.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1119,8 +1123,8 @@ elif page == "📊  Top 100":
     # ── download ──────────────────────────────────────────────────────────────
     st.divider()
     if SUBMISSION_FILE.exists():
-        st.download_button("⬇  Download submission.csv",
-                           SUBMISSION_FILE.read_bytes(), "submission.csv", "text/csv")
+        st.download_button("⬇  Download purvi-porwal.csv",
+                           SUBMISSION_FILE.read_bytes(), "purvi-porwal.csv", "text/csv")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1144,15 +1148,15 @@ elif page == "📐  Architecture":
         ("#0d9488", "🛡", "Phase A · Pre-filter", "~3 s",
          "Honeypot detection (5 rules) + Title gate",
          ["19 honeypots eliminated", "HR Mgr / Accountant / Designer → score 0.04", "100,000 → 31,928 survivors"]),
-        ("#7c3aed", "🧠", "Phase B · Semantic Index", "~53 s",
-         "Hybrid semantic on 31,928 survivors — TF-IDF all + neural top 500",
-         ["Step 1: TF-IDF on all 31,928 (~26 s) — identifies top 500", "Step 2: all-MiniLM-L6-v2 neural re-rank top 500 (~52 s)", "Merge: neural scores where available, TF-IDF elsewhere"]),
+        ("#7c3aed", "🧠", "Phase B · 3-Stage Semantic", "~90 s",
+         "3-stage hybrid semantic on 31,928 survivors",
+         ["Stage 1: TF-IDF on all 31,928 (~20 s) — identifies top 500", "Stage 2: all-MiniLM-L6-v2 bi-encoder re-rank top 500 (~50 s)", "Stage 3: ms-marco cross-encoder re-rank top 30 (~20 s) — NDCG@10 maximiser"]),
         ("#4f46e5", "⚖️", "Phase C · 8-Component Score", "~43 s",
          "Weighted additive score on all 31,928 survivors",
-         ["Title 22% · Skills 26% · Semantic 14%", "Exp 16% · Behavioral 12% · Narrative 5%", "Location 3% · Edu/Assess 2%"]),
+         ["Title 22% · Skills 26% (+ pillar combo + recency) · Semantic 14%", "Exp 16% (+ AI-native bonus) · Behavioral 12% (+ reachability) · Narrative 5% (+ trajectory)", "Location 3% · Edu/Assess 2%"]),
         ("#059669", "📊", "Phase D + E · Output", "~7 s",
-         "Sort → top 100 → enforce monotonicity → reasoning",
-         ["100 rows, non-increasing scores", "Per-candidate reasoning from real fields", "→ purvi-porwal.csv  (~210 s total · CPU only · hybrid neural)"]),
+         "Sort → reachability/notice caps → top 100 → reasoning",
+         ["100 rows, non-increasing scores", "Per-candidate reasoning from real fields", "→ purvi-porwal.csv  (~195 s total · CPU only · ≤700 MB RAM)"]),
     ]
 
     for i, (color, icon, name, timing, subtitle, bullets) in enumerate(phases):
@@ -1195,9 +1199,9 @@ elif page == "📐  Architecture":
         ("🏢", "Consulting firm penalty", "−35% on exp", "JD",
          "#1e1b4b", "#a5b4fc",
          "JD says: 'TCS, Infosys, Wipro, Accenture — bad fit in both directions.' Full consulting career → experience score × 0.65. Mixed career gets no penalty — fair and JD-grounded."),
-        ("🔍", "TF-IDF semantic similarity", "14% weight", "Design",
+        ("🔍", "3-stage cross-encoder retrieval", "14% weight", "Design",
          "#052e16", "#86efac",
-         "Two-stage hybrid approach designed for the 5-min CPU constraint. Stage 1: TF-IDF on all 31,928 survivors (~26 s) — finds top 500 by semantic relevance. Stage 2: all-MiniLM-L6-v2 (384d, sentence-transformers) re-encodes only those 500 candidates (~52 s) — neural cosine catches 'led migration from BM25 to hybrid embedding' even without FAISS listed. Total: ~78 s semantic, ~210 s full pipeline. Score range improved from 0.40 (TF-IDF only) to 0.76 (hybrid)."),
+         "Three-stage pipeline for the 5-min CPU constraint. Stage 1: TF-IDF on all 31,928 (~20 s) → top 500. Stage 2: all-MiniLM-L6-v2 bi-encoder re-rank top 500 (~50 s) — catches 'BM25 to hybrid embedding migration' even without FAISS listed. Stage 3: cross-encoder/ms-marco-MiniLM-L-6-v2 re-ranks top 30 (~20 s) — jointly encodes JD + candidate text, maximises NDCG@10 directly. Total: ~90 s semantic, ~195 s full pipeline. Models pre-cached in Docker for offline reproduction."),
         ("📡", "All 23 behavioral signals", "12% weight", "Spec",
          "#422006", "#fde68a",
          "Spec: 'Inactive 6 months + 5% response rate = not actually available.' Recency 23%, response rate 20%, notice 13%, interview 10%, GitHub 8%, salary fit 7%, trust signals 10%, demand 7%."),
@@ -1258,7 +1262,7 @@ elif page == "📐  Architecture":
         ("2", "Scoring (NDCG@10/50)",  "✅ Optimised",
          "Top 10 are domain-correct ML/AI engineers. No honeypots in top 100. Strong behavioral weighting."),
         ("3", "Code reproduction",     "✅ Reproducible",
-         "python rank.py → ~210 s (3.5 min), ≤600 MB, CPU only, no network during ranking. Dockerfile included."),
+         "python rank.py → ~195 s (3.25 min), ≤700 MB, CPU only, no network during ranking. Models pre-cached in Docker at build time. Dockerfile included."),
         ("4", "Reasoning review",      "✅ Grounded",
          "Every claim references real profile fields. Skills named exist in candidate.skills. No templates — 0 repeated phrases across 100 candidates."),
         ("5", "Defend-your-work",      "✅ Documented",

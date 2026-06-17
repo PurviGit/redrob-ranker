@@ -37,7 +37,7 @@ compute:
   has_network_during_ranking: false
   pre_computation_required: false
   pre_computation_time_minutes: 0
-  runtime_seconds: 210
+  runtime_seconds: 195
   peak_ram_mb: 700
 
 # ============================================================================

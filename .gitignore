@@ -5,6 +5,7 @@ __pycache__/
 *.pyo
 .pytest_cache/
 precomputed/
+precompute/
 *.npy
 .env
 audit.py
@@ -13,3 +14,5 @@ regen_reasoning.py
 build_sample.py
 inspect*.py
 tmp_docs/
+submission.csv
+[PUB] India_runs_data_and_ai_challenge/
