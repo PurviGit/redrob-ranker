@@ -442,11 +442,29 @@ def score_behavioral(c: dict) -> tuple[float, dict]:
     }
 
 
+
+# JD mentions these EXACT production scenarios — direct evidence of the role's core work
+_JD_PRODUCTION_PHRASES = [
+    (r"embedding.{0,10}drift",           0.18),
+    (r"index.{0,10}refresh",             0.15),
+    (r"retrieval.{0,15}regress",         0.18),
+    (r"keyword.{0,15}embed|migrat.{0,15}embed", 0.20),
+    (r"two.stage.retrieval|recall.precision.tradeoff", 0.15),
+    (r"relevance.{0,10}label|human.{0,10}eval", 0.12),
+    (r"online.{0,10}offline.{0,10}corr|a.b.{0,10}retrieval", 0.15),
+]
+
+
 def score_narrative(c: dict) -> float:
     ft    = full_text(c)
     total = 0.0
     for pattern, weight in NARRATIVE_PHRASES:
         if re.search(pattern, ft):
+            total += weight
+
+    # JD-exact production phrases (embedding drift, index refresh, etc.)
+    for pattern, weight in _JD_PRODUCTION_PHRASES:
+        if re.search(pattern, ft, re.IGNORECASE):
             total += weight
 
     research_words   = ["publication","paper","arxiv","theorem","proof","lab","phd thesis"]
@@ -457,6 +475,30 @@ def score_narrative(c: dict) -> float:
         total -= 0.20
 
     return max(0.0, min(1.0, total))
+
+
+def score_career_trajectory(c: dict) -> float:
+    """Reward candidates whose career arc moves TOWARD ML/AI.
+    Recent titles more ML-relevant than older ones = positive signal."""
+    hist = c.get("career_history", [])
+    if len(hist) < 2:
+        return 0.65  # neutral — single job, no trajectory data
+
+    def _ml_relevance(title: str) -> float:
+        t = norm(title)
+        if any(kw in t for kw in STRONG_TITLES):   return 1.0
+        if any(kw in t for kw in ADJACENT_TITLES): return 0.45
+        return 0.15
+
+    recent  = _ml_relevance(hist[0].get("title", ""))          # hist[0] = current job
+    older   = [_ml_relevance(j.get("title", "")) for j in hist[1:]]
+    avg_old = sum(older) / len(older)
+
+    if recent >= 0.9 and avg_old >= 0.7:   return 1.0   # consistently strong ML career
+    if recent > avg_old + 0.2:             return 0.90  # growing into ML
+    if recent >= 0.9:                      return 0.85  # strong now, varied past
+    if recent >= avg_old - 0.05:           return 0.70  # stable
+    return 0.40                                          # moving away from ML
 
 
 def score_location(c: dict) -> float:
@@ -528,12 +570,17 @@ def score_candidate(
     exp_score, exp_tier = score_experience(c)
     beh_score, beh_det  = score_behavioral(c)
     nar_score           = score_narrative(c)
+    traj_score          = score_career_trajectory(c)
     loc_score           = score_location(c)
     edu_score           = score_edu_assessment(c)
 
     sem = 0.50 if semantic_score is None else semantic_score
     phr = 0.0  if phrase_score   is None else phrase_score
     sem_combined = 0.75 * sem + 0.25 * phr
+
+    # Blend narrative (production evidence phrases) with career trajectory
+    # nar_score captures WHAT they did; traj_score captures career ARC direction
+    nar_combined = 0.65 * nar_score + 0.35 * traj_score
 
     if t_tier == "disqualified" and sk_score < 0.30:
         return max(t_score * sk_score, 0.01), {
@@ -542,14 +589,14 @@ def score_candidate(
         }
 
     composite = (
-        t_score      * WEIGHTS["title"]     +
-        sk_score     * WEIGHTS["skills"]    +
-        sem_combined * WEIGHTS["semantic"]  +
-        exp_score    * WEIGHTS["exp"]       +
-        beh_score    * WEIGHTS["behavioral"]+
-        nar_score    * WEIGHTS["narrative"] +
-        loc_score    * WEIGHTS["location"]  +
-        edu_score    * WEIGHTS["edu_asm"]
+        t_score       * WEIGHTS["title"]     +
+        sk_score      * WEIGHTS["skills"]    +
+        sem_combined  * WEIGHTS["semantic"]  +
+        exp_score     * WEIGHTS["exp"]       +
+        beh_score     * WEIGHTS["behavioral"]+
+        nar_combined  * WEIGHTS["narrative"] +
+        loc_score     * WEIGHTS["location"]  +
+        edu_score     * WEIGHTS["edu_asm"]
     )
 
     # ── Reachability multiplier ───────────────────────────────────────────────
