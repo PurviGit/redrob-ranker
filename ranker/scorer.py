@@ -420,10 +420,12 @@ def score_location(c: dict) -> float:
     reloc   = sig.get("willing_to_relocate", False)
     mode    = norm(sig.get("preferred_work_mode", ""))
 
-    if any(city in loc for city in ["pune", "noida", "delhi"]):
+    METRO_CITIES = {"bangalore","bengaluru","mumbai","delhi","delhi ncr","hyderabad",
+                    "gurgaon","gurugram","pune","noida"}
+    if any(city in loc for city in METRO_CITIES):
         return 1.0
     if any(city in loc for city in TARGET_CITIES):
-        return 0.90
+        return 0.85
     if "india" in country or "india" in loc:
         return 0.78 if reloc else 0.65
     if reloc:
@@ -503,6 +505,17 @@ def score_candidate(
         loc_score    * WEIGHTS["location"]  +
         edu_score    * WEIGHTS["edu_asm"]
     )
+
+    # ── Reachability multiplier ───────────────────────────────────────────────
+    # A candidate a recruiter cannot reach is worthless regardless of skill score.
+    sig = c.get("redrob_signals", {})
+    rr  = float(sig.get("recruiter_response_rate", 0.5))
+    if   rr < 0.10: composite *= 0.78   # near-unreachable (11% → hard drop)
+    elif rr < 0.20: composite *= 0.88   # very low response rate
+
+    # Long notice period cap — 120d notice hurts urgent hiring roles
+    notice = sig.get("notice_period_days", 60)
+    if notice > 90: composite *= 0.94   # slight pull-down; not a disqualifier
 
     return round(composite, 5), {
         "honeypot":        False,
