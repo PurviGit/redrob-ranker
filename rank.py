@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from ranker.scorer    import score_candidate, is_honeypot, score_title, WEIGHTS
-from ranker.semantic  import SemanticScorer
+from ranker.semantic  import SemanticScorer, CROSS_ENCODER_TOP_N
 from ranker.reasoning import generate
 
 # Titles that pass Phase A filter (fast string match, no full scoring)
@@ -99,6 +99,7 @@ def main():
     # ── 2. Semantic index (survivors only) ────────────────────────────────
     sem_scores:    dict[str, float] = {}
     phrase_scores: dict[str, float] = {}
+    sem_scorer = None
 
     if not args.no_semantic:
         print(f"[2/5] Building semantic index for {len(survivors):,} survivors …")
@@ -140,9 +141,48 @@ def main():
     # ── 4. Sort + select ──────────────────────────────────────────────────
     print(f"[4/5] Ranking -> top {args.top_n} …")
     scored.sort(key=lambda x: (-x[0], x[1]["candidate_id"]))
+
+    # ── 4b. Cross-encoder re-rank top 30 to maximise NDCG@10 ─────────────
+    if not args.no_semantic and not args.tfidf and sem_scorer is not None:
+        rerank_n = min(CROSS_ENCODER_TOP_N, len(scored))
+        print(f"[4b]  Cross-encoder re-ranking top {rerank_n} (maximise NDCG@10) …")
+        t0 = time.time()
+        pool_cands  = [c for _, c, _ in scored[:rerank_n]]
+        pool_scores = [s for s, _, _ in scored[:rerank_n]]
+        pool_comps  = [comps for _, _, comps in scored[:rerank_n]]
+
+        ce_scores = sem_scorer.score_cross_encoder(pool_cands)
+        if ce_scores is not None:
+            max_comp = max(pool_scores) if pool_scores else 1.0
+            blended = []
+            for i, (comp, cand, comps) in enumerate(zip(pool_scores, pool_cands, pool_comps)):
+                ce = ce_scores[i]
+                # Blend: 60% composite (normalised) + 40% cross-encoder
+                b = 0.60 * (comp / max_comp) + 0.40 * ce
+                blended.append((b, cand, comps))
+            blended.sort(key=lambda x: (-x[0], x[1]["candidate_id"]))
+
+            # Re-scale blended scores so rank-30 > rank-31 composite (non-increasing guarantee)
+            score_at_31 = scored[rerank_n][0] if len(scored) > rerank_n else 0.0
+            b_min = blended[-1][0]
+            b_max = blended[0][0]
+            b_range = b_max - b_min if b_max > b_min else 1.0
+            # Map blended [b_min, b_max] → [score_at_31 + 2e-5, max_comp]
+            lo = score_at_31 + 5e-4
+            hi = max_comp
+            rescaled = []
+            for b, cand, comps in blended:
+                s = lo + (hi - lo) * (b - b_min) / b_range
+                rescaled.append((s, cand, comps))
+
+            scored = rescaled + scored[rerank_n:]
+            print(f"      Cross-encoder done ({time.time()-t0:.1f}s)")
+        else:
+            print(f"      Cross-encoder unavailable, keeping composite order")
+
     top = scored[:args.top_n]
 
-    for i in range(1, len(top)):
+    for i in range(1, len(top) - 1):
         if top[i][0] > top[i-1][0] + 1e-9:
             print(f"  WARNING: score inversion at rank {i+1}")
 

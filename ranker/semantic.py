@@ -53,6 +53,21 @@ STRONG_SEMANTIC_PHRASES = [
 # Number of top TF-IDF candidates to re-score with neural
 NEURAL_RERANK_TOP_N = 500
 
+# Number of top composite-scored candidates to re-rank with cross-encoder
+CROSS_ENCODER_TOP_N = 30
+
+# Shorter JD for cross-encoder (512-token limit — leave ~400 tokens for candidate)
+JD_FOR_CROSS_ENCODER = (
+    "Senior AI Engineer at a Series A AI-native talent intelligence platform. "
+    "Building ranking, retrieval, and candidate-job matching systems in production. "
+    "Required: embedding-based retrieval (dense vectors + BM25 hybrid search), "
+    "vector databases (Pinecone, Weaviate, Qdrant, Milvus, FAISS, OpenSearch), "
+    "learning to rank (NDCG, MRR, MAP), RAG pipelines, fine-tuning transformers "
+    "(LoRA, QLoRA, PEFT). Evaluation frameworks: offline-to-online correlation, A/B testing. "
+    "Strong Python production code. Not pure research — shipping working systems. "
+    "Pre-LLM retrieval experience valued. Product company background preferred."
+)
+
 
 def _tok(text: str) -> list[str]:
     return re.sub(r"[^a-z0-9 ]", " ", text.lower()).split()
@@ -250,6 +265,28 @@ class SemanticScorer:
         with open(ids_path, "w") as f:
             f.write("\n".join(self._candidate_ids))
         print(f"  [Semantic] Saved → {path}")
+
+    # ── Cross-encoder re-rank (called from rank.py after composite sort) ──────
+    def score_cross_encoder(self, candidates: list[dict]) -> Optional[list[float]]:
+        """Run cross-encoder on a small candidate set. Returns sigmoid scores or None."""
+        if not self._use_neural or self._model is None:
+            return None
+        try:
+            from sentence_transformers.cross_encoder import CrossEncoder
+        except ImportError:
+            return None
+        try:
+            ce_model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2", max_length=512)
+        except Exception as e:
+            print(f"  [CrossEncoder] Load failed ({e.__class__.__name__}), skipping")
+            return None
+
+        texts = [build_candidate_semantic_text(c) for c in candidates]
+        pairs = [(JD_FOR_CROSS_ENCODER, t) for t in texts]
+        raw   = ce_model.predict(pairs, show_progress_bar=False)
+        # Sigmoid to normalise logits → [0, 1]
+        import numpy as _np
+        return (1.0 / (1.0 + _np.exp(-_np.array(raw, dtype=np.float32)))).tolist()
 
     def _load_precomputed(self, candidates: list[dict]):
         path = Path(self._precomputed_path)
