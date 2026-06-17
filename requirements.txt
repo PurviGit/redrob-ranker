@@ -1,21 +1,16 @@
-# Redrob Candidate Ranker v2 — Dependencies
+# Redrob Candidate Ranker — Dependencies
 #
-# rank.py (ranking):
-#   stdlib only: json, csv, gzip, argparse, re, math, pathlib, time
-#   + numpy (scientific computing, pre-installed everywhere)
-#
-# Optional — neural semantic scoring (better accuracy):
-#   pip install sentence-transformers
-#   Downloads all-MiniLM-L6-v2 (~80 MB) on first run.
-#   rank.py auto-detects and switches from TF-IDF to neural. No code change.
+# Ranking pipeline (rank.py):
+#   numpy + sentence-transformers (hybrid semantic: TF-IDF all + neural top 500)
+#   all-MiniLM-L6-v2 (~80 MB) downloaded once, cached locally.
+#   No network calls during ranking itself.
 #
 # Sandbox app (app.py):
-#   pip install streamlit pandas plotly
+#   streamlit + pandas + plotly
 
+# Core ranking
 numpy>=1.24.0
-
-# Optional: uncomment for neural semantic scoring
-# sentence-transformers>=2.6.0
+sentence-transformers>=2.6.0
 
 # Sandbox
 streamlit>=1.35.0

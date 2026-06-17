@@ -3,7 +3,7 @@ ranker/reasoning.py  —  Stage-4-quality per-candidate reasoning.
 
 Every claim references a real field from the candidate profile.
 No hallucination: skills named must exist in candidate.skills,
-achievements quoted must appear in career_history descriptions.
+signal values quoted come directly from redrob_signals.
 Spec Stage-4 checks: specific facts, JD connection, honest concerns,
 no hallucination, variation, rank-consistent tone.
 """
@@ -14,7 +14,6 @@ from ranker.scorer import (
     CONSULTING_FIRMS, PRODUCT_COMPANIES, CORE_SKILLS,
 )
 
-# JD "must-have" skills — naming these in reasoning = explicit JD connection
 JD_MUST_HAVE = {
     "pinecone", "weaviate", "qdrant", "milvus", "faiss", "opensearch",
     "elasticsearch", "chromadb", "lancedb", "annoy",
@@ -28,7 +27,6 @@ JD_MUST_HAVE = {
     "vector database", "vector db",
 }
 
-# Career text patterns that prove production experience (JD cares about this most)
 _PRODUCTION_PATTERNS: list[tuple[str, str]] = [
     (r"(\d[\d,]*\s*(?:M\+?|million|B\+?|billion|K\+?|thousand)?\s*(?:queries|requests|QPM|QPS|users|candidates|records))",
      "scale"),
@@ -43,38 +41,19 @@ _PRODUCTION_PATTERNS: list[tuple[str, str]] = [
 ]
 
 
-def _extract_career_achievement(hist: list[dict]) -> str:
-    """
-    Pull one concrete achievement from career descriptions.
-    Always ends at a sentence boundary so it reads as a complete thought.
-    """
+def _extract_career_keyword(hist: list[dict]) -> str:
+    """Extract the most specific technical keyword/phrase from career history.
+    Returns a SHORT phrase (not a full sentence) to avoid template repetition."""
     for job in hist[:3]:
         desc = job.get("description", "")
-        for pat, _ in _PRODUCTION_PATTERNS:
+        for pat, tag in _PRODUCTION_PATTERNS:
             m = re.search(pat, desc, re.IGNORECASE)
             if m:
-                # Find sentence start
-                before = desc[:m.start()]
-                sent_start = max(before.rfind(". "), before.rfind(".\n"), before.rfind(": "))
-                sent_start = sent_start + 2 if sent_start >= 0 else 0
-
-                # Find sentence end — always cut at a full stop so we don't trail off
-                after = desc[m.end():]
-                dot = after.find(". ")
-                dot_nl = after.find(".\n")
-                # pick the earliest sentence-end we find; if none within 150 chars, skip
-                candidates_end = [x for x in [dot, dot_nl] if 0 <= x <= 150]
-                if not candidates_end:
-                    continue
-                end_offset = min(candidates_end) + 1   # include the full stop
-
-                snippet = desc[sent_start : m.end() + end_offset].strip().rstrip(".")
-                # Trim to 130 chars only if we can do it at a word boundary
-                if len(snippet) > 130:
-                    cut = snippet[:130].rfind(" ")
-                    snippet = snippet[:cut].rstrip(".,;") + "..."
-                if len(snippet) > 25:
-                    return snippet
+                kw = m.group(1).strip().rstrip(".,;")
+                if len(kw) > 80:
+                    kw = kw[:80].rsplit(" ", 1)[0] + "..."
+                if len(kw) > 5:
+                    return kw
     return ""
 
 
@@ -85,9 +64,20 @@ def _jd_matched_skills(candidate: dict) -> list[str]:
         name = s.get("name", "").lower()
         if any(jd in name or name in jd for jd in JD_MUST_HAVE):
             named.append(s["name"])
-        if len(named) >= 4:
+        if len(named) >= 5:
             break
     return named
+
+
+def _top_skills_by_proficiency(candidate: dict, n: int = 3) -> list[str]:
+    """Top N skills ranked by proficiency level, to show actual depth."""
+    order = {"expert": 3, "advanced": 2, "intermediate": 1, "beginner": 0}
+    skills = sorted(
+        candidate.get("skills", []),
+        key=lambda s: order.get(s.get("proficiency_level", "").lower(), 0),
+        reverse=True,
+    )
+    return [s["name"] for s in skills[:n]]
 
 
 def generate(candidate: dict, rank: int, score: float, components: dict) -> str:
@@ -106,11 +96,11 @@ def generate(candidate: dict, rank: int, score: float, components: dict) -> str:
     yoe     = p.get("years_of_experience", 0)
     loc     = p.get("location", "unknown")
     company = p.get("current_company", "")
+    loc_str = loc.split(",")[0].strip()
 
-    loc_str    = loc.split(",")[0].strip()
-    ft         = full_text(candidate)
     jd_skills  = _jd_matched_skills(candidate)
-    achievement = _extract_career_achievement(hist)
+    top_skills = _top_skills_by_proficiency(candidate, 3)
+    career_kw  = _extract_career_keyword(hist)
 
     notice   = sig.get("notice_period_days", 60)
     rr       = sig.get("recruiter_response_rate", None)
@@ -125,21 +115,35 @@ def generate(candidate: dict, rank: int, score: float, components: dict) -> str:
     cos        = [norm(j.get("company", "")) for j in hist]
     is_product = any(any(p_ in co for p_ in PRODUCT_COMPANIES) for co in cos)
 
-    # ── Sentence 1: identity + most specific technical evidence ─────────
+    # ── Sentence 1: identity + unique technical evidence ───────────────────
+    # Lead with title, YoE, company (always unique per candidate)
     s1 = f"{title} ({yoe:.1f}yr) at {company}, {loc_str}."
 
-    if achievement:
-        s1 += f" Career: {achievement}."
+    # Add the most specific unique technical signal we can find, in priority order:
+    # 1. JD-aligned skills (always unique per candidate's actual skill list)
+    # 2. Career keyword (short phrase, not full sentence — avoids template repeats)
+    # 3. Top skills by proficiency
+
+    if jd_skills and career_kw:
+        # Best case: both skills and a specific career keyword
+        skills_str = ", ".join(jd_skills[:3])
+        s1 += f" JD-aligned: {skills_str}. Production evidence: {career_kw}."
     elif jd_skills:
-        s1 += f" JD-aligned skills: {', '.join(jd_skills[:3])}."
-    elif components.get("skills_matched"):
-        matched = components["skills_matched"][:3]
-        s1 += f" Relevant skills: {', '.join(matched)}."
+        skills_str = ", ".join(jd_skills[:3])
+        s1 += f" JD-aligned skills: {skills_str}."
+        if len(jd_skills) >= 4:
+            s1 += f" Also: {jd_skills[3]}."
+    elif career_kw:
+        # No JD skills but has a career keyword
+        s1 += f" Career highlight: {career_kw}."
+        if top_skills:
+            s1 += f" Top skills: {', '.join(top_skills)}."
+    elif top_skills:
+        s1 += f" Strongest skills: {', '.join(top_skills)}."
 
     # ── Gather strengths and concerns (signal-value specific) ───────────
     strengths, concerns = [], []
 
-    # Recency
     if inactive <= 7:
         strengths.append(f"active {inactive}d ago")
     elif inactive <= 30:
@@ -147,14 +151,12 @@ def generate(candidate: dict, rank: int, score: float, components: dict) -> str:
     elif inactive > 180:
         concerns.append(f"inactive {inactive}d — reachability risk")
 
-    # Response rate with value
     if rr is not None:
         if rr >= 0.70:
             strengths.append(f"{rr:.0%} response rate")
         elif rr < 0.30:
             concerns.append(f"low response rate ({rr:.0%})")
 
-    # GitHub with actual score
     if gh >= 70:
         strengths.append(f"GitHub {gh:.0f}/100")
     elif gh >= 40:
@@ -162,7 +164,6 @@ def generate(candidate: dict, rank: int, score: float, components: dict) -> str:
     elif gh == -1:
         concerns.append("no GitHub linked")
 
-    # Notice
     if notice == 0:
         strengths.append("immediate joiner")
     elif notice <= 15:
@@ -172,42 +173,33 @@ def generate(candidate: dict, rank: int, score: float, components: dict) -> str:
     elif notice > 90:
         concerns.append(f"{notice}d notice period")
 
-    # Open to work
     if otw:
         strengths.append("open-to-work")
 
-    # Company type — JD explicitly penalises consulting-only
     if exp_tier == "consulting":
         concerns.append("consulting-only career (JD disqualifier)")
     elif is_product:
         strengths.append("product company pedigree")
 
-    # Title match
     if t_tier in ("strong_current", "strong_history_2plus"):
         strengths.append("title directly matches JD scope")
     elif t_tier == "adjacent":
         concerns.append("adjacent title — not a direct AI/ML match")
 
-    # Domain mismatch
     if neg_hits >= 2:
         concerns.append(f"{neg_hits} CV/robotics/speech skills — potential domain mismatch")
 
-    # JD skill coverage
-    if jd_skills and len(jd_skills) >= 3:
-        strengths.append(f"JD skills covered: {', '.join(jd_skills[:3])}")
-    elif not jd_skills:
-        concerns.append("no direct JD must-have skills in profile")
+    if not jd_skills:
+        concerns.append("no direct JD must-have skills listed")
 
-    # Salary
     sal_max = sal.get("max", 0)
     if sal_max > 95:
-        concerns.append(f"salary {sal.get('min',0):.0f}–{sal_max:.0f} LPA may exceed band")
+        concerns.append(f"salary expectation {sal.get('min',0):.0f}–{sal_max:.0f} LPA may exceed band")
 
     # ── Sentence 2: tone calibrated to rank tier ─────────────────────────
     if rank <= 10:
-        # Top 10 — lead with what specifically makes them excellent, flag any real concerns
         highlight = [x for x in strengths if any(k in x for k in
-                     ["GitHub", "response", "notice", "JD skills", "active", "product", "open-to-work"])][:3]
+                     ["GitHub", "response", "notice", "active", "product", "open-to-work"])][:3]
         if not highlight:
             highlight = strengths[:3]
         if concerns:
@@ -218,7 +210,6 @@ def generate(candidate: dict, rank: int, score: float, components: dict) -> str:
             s2 = "Ranks in top 10 on combined skill depth, semantic alignment, and availability signals."
 
     elif rank <= 30:
-        # Top 30 — balanced picture
         if strengths and concerns:
             s2 = f"{'; '.join(strengths[:2])}. Concern: {concerns[0]}."
         elif strengths:
@@ -227,12 +218,26 @@ def generate(candidate: dict, rank: int, score: float, components: dict) -> str:
             s2 = f"{'; '.join(concerns[:2])}." if concerns else "Solid across most signals; marginal on some JD requirements."
 
     else:
-        # Below rank 30 — be honest about the gap
-        if concerns:
-            s2 = f"Ranked here because: {'; '.join(concerns[:2])}."
+        if concerns and strengths:
+            if rank <= 50:
+                s2 = f"{strengths[0]}. Held back by: {concerns[0]}."
+            elif rank <= 75:
+                s2 = f"Gap: {concerns[0]}. {strengths[0]} keeps them in scope."
+            else:
+                s2 = f"Outside the strong-fit band — {concerns[0]}."
+        elif concerns:
+            if rank <= 50:
+                s2 = f"Main gap: {concerns[0]}."
+            elif rank <= 75:
+                s2 = f"Ranked lower because {concerns[0]}."
+            else:
+                s2 = f"Clear disqualifier: {concerns[0]}."
         elif strengths:
-            s2 = f"Has {strengths[0]}, but marginal fit on the JD's core requirements."
+            if rank <= 50:
+                s2 = f"{strengths[0]}, but JD core (retrieval + ranking + production eval) isn't well evidenced."
+            else:
+                s2 = f"Positive signal: {strengths[0]}. Weak on JD specifics — no retrieval/ranking production evidence."
         else:
-            s2 = "Below the clear-fit threshold on most JD dimensions."
+            s2 = "Below threshold on title fit, skills coverage, and behavioral availability."
 
     return f"{s1} {s2}"

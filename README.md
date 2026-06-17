@@ -11,11 +11,11 @@ git clone https://github.com/purviporwal/redrob-ranker
 cd redrob-ranker
 pip install numpy
 cp /path/to/candidates.jsonl .
-python rank.py --tfidf
-python validate_submission.py submission.csv
+python rank.py --candidates candidates.jsonl --out purvi-porwal.csv
+python validate_submission.py purvi-porwal.csv
 ```
 
-Runs in ~126 seconds on CPU. No GPU. No network calls during ranking.
+Runs in ~126 seconds on CPU. No GPU. No network calls during ranking. Only dependency for ranking is `numpy`.
 
 ---
 
@@ -37,13 +37,17 @@ The gate has three tiers: strong (ML/AI/NLP/Search/Retrieval titles), adjacent (
 
 ---
 
-### Semantic similarity via TF-IDF cosine (14% of final score)
+### Semantic similarity — hybrid TF-IDF + neural (14% of final score)
 
-I wrote a two-pass streaming TF-IDF implementation because I didn't want to require sentence-transformers as a hard dependency. It runs on all survivors (~32K after pre-filter) in about 40 seconds using ~300 MB of RAM — no NxV matrix stored, just chunk-by-chunk dot products.
+Two-stage approach designed around the 5-minute CPU constraint:
 
-The JD "document" I embed against is not just a dump of skill keywords. It includes the reasoning behind the role: phrases like "migration from keyword-based search to embedding-based retrieval," "embedding drift and index refresh in production," "retrieval quality regression." A candidate who describes exactly this in their career history will score 0.42+ on semantic even without listing FAISS or Pinecone by name.
+**Stage 1 — TF-IDF on all 31,928 survivors (~26 s):** Single-pass streaming TF-IDF cosine vs the JD document. No NxV matrix stored — chunk-by-chunk dot products. This scores every candidate quickly and identifies the top 500 by semantic relevance.
 
-The code is written so that `pip install sentence-transformers` automatically upgrades to neural embeddings with zero code changes. That's a deliberate design decision — if this system were running in production, you'd want to be able to swap in a better encoder without rewiring anything.
+**Stage 2 — Neural re-rank top 500 (~52 s):** `all-MiniLM-L6-v2` (384d, sentence-transformers) re-encodes only those 500 candidates. Their TF-IDF scores are replaced with the neural cosine score, which captures meaning that keyword overlap misses — a candidate who writes "led migration from BM25-only retrieval to hybrid embedding setup" scores 0.76 even without listing FAISS by name.
+
+The remaining 31,428 candidates keep their TF-IDF score. Since the final top 100 will almost certainly come from within the TF-IDF top 500 (semantic is 14% of score), no quality is lost.
+
+Total semantic time: ~78 s. Total pipeline: ~210 s — well within the 5-minute budget.
 
 ---
 
@@ -108,9 +112,9 @@ candidates.jsonl  (100,000)
        ▼  Phase A — Pre-filter: honeypot (5 rules) + title gate       ~3 s
        │           100K → ~32K survivors  (68K eliminated in one pass)
        │
-       ▼  Phase B — TF-IDF semantic index on ~32K survivors            ~53 s
-       │           Single vocab build, chunk-by-chunk cosine scores
-       │           Neural upgrade: pip install sentence-transformers (auto)
+       ▼  Phase B — Hybrid semantic on ~32K survivors                   ~78 s
+       │           Step 1: TF-IDF on all 31,928 (~26 s)
+       │           Step 2: Neural re-rank top 500 via all-MiniLM-L6-v2 (~52 s)
        │
        ▼  Phase C — 8-component scoring on ~32K survivors              ~43 s
        │           Title · Skills · Semantic · Experience
@@ -120,7 +124,7 @@ candidates.jsonl  (100,000)
        │
        ▼  Phase E — Per-candidate reasoning from real profile fields
        │
-       → submission.csv  (126 s · CPU only · ~500 MB RAM peak)
+       → purvi-porwal.csv  (~210 s · CPU only · ~600 MB RAM peak)
 ```
 
 ---
@@ -131,7 +135,7 @@ candidates.jsonl  (100,000)
 |---|---|---|
 | Title fit | 22% | Domain gate — wrong field is eliminated before skills are scored |
 | Skills depth | 26% | Proficiency × duration × endorsements for JD-aligned skills specifically |
-| Semantic similarity | 14% | TF-IDF cosine of career text vs JD document |
+| Semantic similarity | 14% | Hybrid: TF-IDF all candidates + neural (all-MiniLM-L6-v2) top 500 |
 | Experience quality | 16% | YoE band + company type + stability + consulting/product penalty |
 | Behavioral signals | 12% | All 23 signals: recency, response rate, notice, GitHub, salary, trust |
 | Career narrative | 5% | 14 production-evidence regex patterns against career descriptions |
@@ -146,25 +150,25 @@ Weights sum to exactly 1.0.
 
 | Constraint | Limit | Actual |
 |---|---|---|
-| Runtime | ≤ 5 min | **126 s** |
-| Peak memory | ≤ 16 GB | **~500 MB** |
+| Runtime | ≤ 5 min | **~210 s** (3.5 min) |
+| Peak memory | ≤ 16 GB | **~600 MB** |
 | GPU | Not allowed | ✅ CPU only |
 | Network during ranking | Not allowed | ✅ Fully offline |
 
 ---
 
-## Optional neural upgrade
+## Semantic scoring
+
+Hybrid mode by default — TF-IDF on all candidates, then neural re-rank of top 500:
 
 ```bash
-pip install sentence-transformers
-python rank.py --candidates candidates.jsonl --out submission.csv
-# Automatically uses all-MiniLM-L6-v2 (384d). No code change.
+python rank.py --candidates candidates.jsonl --out purvi-porwal.csv
+# Hybrid TF-IDF + neural, ~210 s, ~600 MB RAM, fully offline after first model download
 ```
 
-To pre-compute embeddings for faster reruns:
+Force TF-IDF only (no sentence-transformers needed):
 ```bash
-python precompute/embed.py --candidates candidates.jsonl
-python rank.py   # loads in ~2 s
+python rank.py --tfidf   # ~126 s, ~500 MB RAM
 ```
 
 ---

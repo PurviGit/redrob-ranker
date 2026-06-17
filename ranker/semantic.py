@@ -1,10 +1,18 @@
 """
 ranker/semantic.py  —  Semantic similarity engine
 
-Primary:  sentence-transformers/all-MiniLM-L6-v2  (neural, ~80 MB, fast CPU)
-Fallback: Two-pass streaming TF-IDF cosine similarity
-          Pass 1 builds vocab (~18 s), Pass 2 scores in 5 K-row chunks (~22 s).
-          Total ≈ 40 s, peak RAM ≈ 200 MB — no NxV matrix stored.
+Mode: Hybrid (default)
+  Step 1: TF-IDF on all ~32K survivors  (~40 s, ~200 MB RAM)
+  Step 2: Neural re-score top 2000 by TF-IDF using all-MiniLM-L6-v2  (~60 s)
+  Step 3: Merge — neural score where available, TF-IDF elsewhere
+  Total: ~100 s, well within 5-min compute budget.
+
+Why not neural on all 32K? Encoding 32K texts with all-MiniLM-L6-v2 on CPU
+takes 10+ minutes — violates the 5-minute constraint. Neural on top 2000
+gives quality where it matters (the candidates actually competing for top 100)
+without blowing the budget.
+
+Fallback (--tfidf flag): pure TF-IDF on all candidates, ~40 s.
 """
 from __future__ import annotations
 import math
@@ -41,6 +49,9 @@ STRONG_SEMANTIC_PHRASES = [
     "bm25", "ltr", "vector database", "recall@k",
     "fine-tuning llm", "rag pipeline", "two-stage retrieval",
 ]
+
+# Number of top TF-IDF candidates to re-score with neural
+NEURAL_RERANK_TOP_N = 500
 
 
 def _tok(text: str) -> list[str]:
@@ -95,17 +106,17 @@ class SemanticScorer:
         if use_neural:
             self._try_load_neural()
         if not self._use_neural:
-            print("  [Semantic] Single-pass cached TF-IDF (build+score ~90 s, ~300 MB RAM)")
+            print("  [Semantic] TF-IDF mode (build+score ~90 s, ~300 MB RAM)")
 
     def _try_load_neural(self):
         try:
             from sentence_transformers import SentenceTransformer
             self._model      = SentenceTransformer("all-MiniLM-L6-v2")
             self._use_neural = True
-            print(f"  [Semantic] Neural: all-MiniLM-L6-v2 "
-                  f"({self._model.get_sentence_embedding_dimension()}d)")
+            print(f"  [Semantic] Hybrid: TF-IDF all + neural top {NEURAL_RERANK_TOP_N} "
+                  f"(all-MiniLM-L6-v2 {self._model.get_sentence_embedding_dimension()}d)")
         except Exception as e:
-            print(f"  [Semantic] Neural unavailable ({e.__class__.__name__}), using TF-IDF")
+            print(f"  [Semantic] Neural unavailable ({e.__class__.__name__}), using TF-IDF only")
             self._use_neural = False
 
     def fit(self, candidates: list[dict]):
@@ -116,9 +127,9 @@ class SemanticScorer:
 
         self._candidate_ids = [c["candidate_id"] for c in candidates]
         if self._use_neural:
-            self._fit_neural(candidates)
+            self._fit_hybrid(candidates)
         else:
-            self._fit_tfidf_two_pass(candidates)
+            self._fit_tfidf(candidates)
 
         lo = self._precomputed_scores.min()
         hi = self._precomputed_scores.max()
@@ -126,35 +137,22 @@ class SemanticScorer:
         if self._precomputed_path:
             self._save_precomputed()
 
-    def _fit_neural(self, candidates: list[dict]):
-        texts   = [build_candidate_semantic_text(c) for c in candidates]
-        jd_emb  = self._model.encode([JD_SEMANTIC_DOCUMENT], normalize_embeddings=True)[0]
-        self._jd_embedding = jd_emb
-        all_scores = []
-        for i in range(0, len(texts), 256):
-            batch = texts[i : i + 256]
-            embs  = self._model.encode(batch, normalize_embeddings=True,
-                                       show_progress_bar=False, batch_size=64)
-            all_scores.extend((embs @ jd_emb).tolist())
-        self._precomputed_scores = np.clip(np.array(all_scores, dtype=np.float32), 0, 1)
-
-    def _fit_tfidf_two_pass(self, candidates: list[dict]):
+    def _fit_tfidf(self, candidates: list[dict]) -> np.ndarray:
+        """TF-IDF on all candidates. Returns score array and caches vocab/idf."""
         N = len(candidates)
-
-        # Single pass: build texts once, collect vocab, then score
-        texts   = [build_candidate_semantic_text(c) for c in candidates]
+        texts     = [build_candidate_semantic_text(c) for c in candidates]
         tok_lists = [_tok(t) for t in texts]
-        del texts  # free memory
+        del texts
 
         word_df: dict[str, int] = {}
         for toks in tok_lists:
             for t in set(toks):
                 word_df[t] = word_df.get(t, 0) + 1
 
-        top2k        = sorted(word_df.items(), key=lambda x: -x[1])[:2000]
-        self._vocab  = {w: i for i, (w, _) in enumerate(top2k)}
-        V            = len(self._vocab)
-        self._idf    = np.array(
+        top2k       = sorted(word_df.items(), key=lambda x: -x[1])[:2000]
+        self._vocab = {w: i for i, (w, _) in enumerate(top2k)}
+        V           = len(self._vocab)
+        self._idf   = np.array(
             [math.log((N + 2) / (word_df.get(w, 0) + 1)) + 1.0 for w in self._vocab],
             dtype=np.float32,
         )
@@ -162,7 +160,6 @@ class SemanticScorer:
         self._jd_embedding = jd_vec
         del word_df
 
-        # Score in chunks (reuse cached token lists, keeps peak RAM ≈ 300 MB)
         CHUNK  = 10000
         scores = np.zeros(N, dtype=np.float32)
         for start in range(0, N, CHUNK):
@@ -182,6 +179,41 @@ class SemanticScorer:
             del mat
 
         self._precomputed_scores = np.clip(scores, 0, 1)
+        return scores
+
+    def _fit_hybrid(self, candidates: list[dict]):
+        """TF-IDF on all → neural re-score top N → merge."""
+        import time
+        t0 = time.time()
+        tfidf_scores = self._fit_tfidf(candidates)
+        print(f"  [Semantic] TF-IDF done ({time.time()-t0:.1f}s). "
+              f"Re-scoring top {NEURAL_RERANK_TOP_N} with neural …")
+
+        # Indices of top N by TF-IDF
+        top_idx = np.argsort(tfidf_scores)[-NEURAL_RERANK_TOP_N:]
+
+        top_candidates = [candidates[i] for i in top_idx]
+        texts = [build_candidate_semantic_text(c) for c in top_candidates]
+
+        jd_emb = self._model.encode(
+            [JD_SEMANTIC_DOCUMENT], normalize_embeddings=True)[0]
+        self._jd_embedding = jd_emb
+
+        neural_scores = []
+        for i in range(0, len(texts), 128):
+            batch = texts[i : i + 128]
+            embs  = self._model.encode(
+                batch, normalize_embeddings=True,
+                show_progress_bar=False, batch_size=64)
+            neural_scores.extend((embs @ jd_emb).tolist())
+
+        # Merge: replace TF-IDF scores for top N with neural scores
+        merged = tfidf_scores.copy()
+        for rank_i, orig_i in enumerate(top_idx):
+            merged[orig_i] = float(np.clip(neural_scores[rank_i], 0, 1))
+
+        self._precomputed_scores = merged
+        print(f"  [Semantic] Neural re-rank done ({time.time()-t0:.1f}s total)")
 
     # ── public API ──────────────────────────────────────────────────────────
     def score_all(self) -> np.ndarray:
